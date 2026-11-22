@@ -1,66 +1,198 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Gerbang RFID — Panduan Menjalankan
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Sistem gerbang RFID: Arduino (RC522 + servo) → bridge.py → Laravel 12 API → database MySQL, dengan panel admin Filament 5.
 
-## About Laravel
+```
+Kartu RFID → Arduino → (USB) bridge.py → Laravel /api/gate/check → MySQL
+                                              ↑
+                          Admin membuka /admin dari browser (PC / HP)
+```
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 1. Kebutuhan
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+| Perangkat lunak | Versi / catatan |
+|---|---|
+| PHP | 8.4, ekstensi: `pdo_mysql`, `mbstring`, `openssl`, `intl`, `zip`, `fileinfo`, `curl`, `ctype`, `xml` |
+| Composer | 2.x |
+| MySQL / MariaDB | via XAMPP atau Laragon |
+| Python 3 | hanya untuk `bridge.py` (`pip install pyserial requests`) |
+| Arduino IDE | untuk upload sketch |
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Cek: `php -v`, `composer -V`, `php -m`.
 
-## Learning Laravel
+## 2. Menjalankan di komputer baru
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+Di folder project:
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+```powershell
+# 1. Pasang dependensi (jika folder vendor belum ada / ingin bersih)
+composer install
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+# 2. File konfigurasi
+copy .env.example .env
+php artisan key:generate
+```
 
-## Laravel Sponsors
+Edit `.env`:
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```env
+APP_NAME="Gerbang RFID"
+APP_URL=http://127.0.0.1:8000
+APP_LOCALE=id
 
-### Premium Partners
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=gerbang_rfid
+DB_USERNAME=root
+DB_PASSWORD=
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+# Kunci rahasia untuk perangkat gerbang (buat sendiri, lihat di bawah)
+GATE_KEY=
+```
 
-## Contributing
+Buat `GATE_KEY`:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```powershell
+php -r "echo bin2hex(random_bytes(24));"
+```
 
-## Code of Conduct
+Lalu:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```powershell
+# 3. Buat database kosong bernama gerbang_rfid di phpMyAdmin, lalu:
+php artisan migrate
 
-## Security Vulnerabilities
+# 4. Akun admin untuk login panel
+php artisan make:filament-user
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+# 5. Bersihkan cache, jalankan server
+php artisan optimize:clear
+php artisan serve
+```
 
-## License
+Buka `http://127.0.0.1:8000/admin`, login, lalu daftarkan kartu di menu **Pengguna RFID**.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+> Alternatif: kalau ingin memakai data yang sudah ada, impor `gerbang_rfid.sql` lewat phpMyAdmin (menggantikan langkah `migrate`).
+
+Tes API tanpa Arduino:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/gate/check `
+  -Headers @{ "X-Gate-Key" = "ISI_GATE_KEY"; "Accept" = "application/json" } `
+  -ContentType "application/json" `
+  -Body '{"uid":"92 FD 36 B9"}'
+```
+
+## 3. Mengakses dari perangkat lain (satu WiFi / jaringan)
+
+1. **Cari IP komputer server**
+   ```powershell
+   ipconfig
+   ```
+   Catat `IPv4 Address` pada adapter WiFi/LAN, misalnya `192.168.1.10`.
+
+2. **Jalankan server agar menerima koneksi dari luar**
+   ```powershell
+   php artisan serve --host=0.0.0.0 --port=8000
+   ```
+
+3. **Buka port di Windows Firewall** (PowerShell sebagai Administrator, sekali saja)
+   ```powershell
+   New-NetFirewallRule -DisplayName "Laravel 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+   ```
+   Pastikan profil jaringan WiFi adalah **Private**, bukan Public.
+
+4. **Sesuaikan `.env`**
+   ```env
+   APP_URL=http://192.168.1.10:8000
+   ```
+   Lalu `php artisan optimize:clear`.
+
+5. **Buka dari HP / laptop lain** (harus di WiFi yang sama):
+   `http://192.168.1.10:8000/admin`
+
+6. **Jika `bridge.py` berjalan di komputer lain**, ubah `API_URL` di `bridge.py`:
+   ```python
+   API_URL = "http://192.168.1.10:8000/api/gate/check"
+   ```
+   Kalau bridge berjalan di komputer yang sama dengan server, tetap `127.0.0.1`.
+
+Catatan:
+- IP bisa berubah saat WiFi tersambung ulang. Atur **IP statis** atau *DHCP reservation* di router supaya tetap.
+- Kalau perangkat lain tidak bisa membuka: cek firewall, pastikan satu jaringan yang sama, dan matikan fitur *AP/Client Isolation* di router.
+- `php artisan serve` hanya untuk pengembangan. Untuk pemakaian harian, gunakan Apache/Nginx (lihat bagian 5).
+
+## 4. Menjalankan gerbang
+
+1. Upload `gerbang_gate_system.ino` ke Arduino, lalu **tutup Serial Monitor**.
+2. Server Laravel berjalan.
+3. Jalankan bridge:
+   ```powershell
+   cd bridge
+   pip install pyserial requests
+   python bridge.py
+   ```
+   `bridge.py` v2 mencari Arduino otomatis dan membaca `GATE_KEY` dari `.env`.
+4. Tap kartu. Hasil yang diharapkan: `-> DITERIMA (Nama)`, servo membuka, dan baris baru muncul di **Log Akses**.
+
+Satu port serial hanya boleh dibuka satu program. Jangan menjalankan Serial Monitor dan bridge bersamaan.
+
+## 5. Memasang untuk pemakaian sungguhan (production)
+
+`.env`:
+
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://domain-kamu.com
+GATE_KEY=<kunci baru, jangan pakai kunci percobaan>
+DB_PASSWORD=<password MySQL yang kuat>
+```
+
+Perintah:
+
+```powershell
+composer install --no-dev --optimize-autoloader
+php artisan migrate --force
+php artisan optimize
+php artisan filament:optimize
+```
+
+Web server diarahkan ke folder `public/` (bukan ke root project), dan pakai HTTPS.
+
+**Penting — akses panel admin di production.** Filament hanya mengizinkan semua user masuk ke panel saat `APP_ENV=local`. Di luar itu, model `User` harus mengimplementasikan `FilamentUser`, kalau tidak login akan ditolak (403). Ubah `app/Models/User.php`:
+
+```php
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
+
+class User extends Authenticatable implements FilamentUser
+{
+    // ... isi yang sudah ada ...
+
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return true; // atau batasi, mis. str_ends_with($this->email, '@sekolahmu.sch.id')
+    }
+}
+```
+
+## 6. Keamanan
+
+- Jangan membagikan `.env` (berisi `APP_KEY`, password DB, dan `GATE_KEY`). Kunci yang sudah pernah dibagikan di chat atau ZIP sebaiknya diganti sebelum sistem dipakai sungguhan.
+- Ganti `GATE_KEY` di `.env` **dan** di `bridge.py` (kalau diisi manual) secara bersamaan, lalu `php artisan config:clear`.
+- Gerbang menolak akses otomatis kalau server tidak menjawab dalam 4 detik. Ini perilaku aman yang disengaja.
+
+## 7. Masalah umum
+
+| Gejala | Penyebab / solusi |
+|---|---|
+| `401 Unauthorized` dari API | `GATE_KEY` di `.env` dan yang dipakai bridge berbeda. Jalankan `php artisan config:clear` |
+| `SQLSTATE ... actively refused` | MySQL belum menyala |
+| `Table ... doesn't exist` | Belum `php artisan migrate` |
+| `Cannot redeclare class` / `Namespace declaration ... first statement` | File PHP ganda atau ada BOM. Simpan file sebagai UTF-8 tanpa BOM |
+| Bridge: `Access is denied` | Port dipakai program lain (Serial Monitor, bridge kedua). Tutup, cabut-colok USB |
+| Bridge tidak menerima data | Salah port (banyak port Bluetooth). Gunakan `PORT = "AUTO"` |
+| Tidak bisa dibuka dari HP | Firewall, beda jaringan, atau server belum memakai `--host=0.0.0.0` |
+| Login `/admin` 403 di production | Implementasikan `FilamentUser` (bagian 5) |
